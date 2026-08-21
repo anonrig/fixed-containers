@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <bit>
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -103,6 +104,32 @@ TEST(BucketOperations, BucketArray)
     static_assert(IntIntMap10::next_bucket_index(0) == 1);
     static_assert(IntIntMap10::next_bucket_index(7) == 8);
     static_assert(IntIntMap10::next_bucket_index(9) == 0);
+}
+
+TEST(BucketOperations, DefaultBucketCountIsPowerOfTwo)
+{
+    static_assert(default_bucket_count(0) == 0);
+    static_assert(default_bucket_count(1) == 1);
+    static_assert(default_bucket_count(2) == 2);
+    static_assert(default_bucket_count(3) == 4);
+    static_assert(default_bucket_count(10) == 16);
+    static_assert(default_bucket_count(100) == 256);
+    static_assert(std::has_single_bit(default_bucket_count(7)));
+    static_assert(default_bucket_count(7) >= 7);
+    static_assert(default_bucket_count(Bucket::MAX_NUM_BUCKETS) <= Bucket::MAX_NUM_BUCKETS);
+}
+
+TEST(BucketOperations, PowerOfTwoBucketIndexIsMask)
+{
+    using IntIntMap16 =
+        FixedRobinhoodHashtable<int, int, 10, 16, ConvenientIntHash, std::equal_to<>>;
+    static_assert(IntIntMap16::TABLE_SIZE_IS_POWER_OF_TWO);
+    static_assert(IntIntMap16::bucket_index_from_hash(0 << Bucket::FINGERPRINT_BITS) == 0);
+    static_assert(IntIntMap16::bucket_index_from_hash(15 << Bucket::FINGERPRINT_BITS) == 15);
+    static_assert(IntIntMap16::bucket_index_from_hash(16 << Bucket::FINGERPRINT_BITS) == 0);
+    static_assert(IntIntMap16::bucket_index_from_hash(17 << Bucket::FINGERPRINT_BITS) == 1);
+    static_assert(IntIntMap16::next_bucket_index(0) == 1);
+    static_assert(IntIntMap16::next_bucket_index(15) == 0);
 }
 
 TEST(MapOperations, Emplace)

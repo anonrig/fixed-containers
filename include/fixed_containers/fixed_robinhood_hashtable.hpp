@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <utility>
 
@@ -122,6 +123,9 @@ public:
     static constexpr std::size_t CAPACITY = MAXIMUM_VALUE_COUNT;
     // 0 size is problematic because it leads to modulo 0 (undefined behavior)
     static constexpr std::size_t INTERNAL_TABLE_SIZE = std::max<std::size_t>(1, BUCKET_COUNT);
+    static constexpr bool TABLE_SIZE_IS_POWER_OF_TWO = std::has_single_bit(INTERNAL_TABLE_SIZE);
+    static constexpr SizeType TABLE_INDEX_MASK =
+        static_cast<SizeType>(INTERNAL_TABLE_SIZE - 1);
 
     fixed_doubly_linked_list_detail::FixedDoublyLinkedList<PairType, CAPACITY, SizeType>
         IMPLEMENTATION_DETAIL_DO_NOT_USE_value_storage_{};
@@ -172,11 +176,19 @@ public:
         // bucket also encodes. This does not restrict the size of the table because we store the
         // value_index in 32 bits, so the 56 left in this hash are plenty for our needs.
         const std::uint64_t shifted_hash = hash >> Bucket::FINGERPRINT_BITS;
+        if constexpr (TABLE_SIZE_IS_POWER_OF_TWO)
+        {
+            return static_cast<SizeType>(shifted_hash) & TABLE_INDEX_MASK;
+        }
         return static_cast<SizeType>(shifted_hash % INTERNAL_TABLE_SIZE);
     }
 
     [[nodiscard]] static constexpr SizeType next_bucket_index(SizeType bucket_index)
     {
+        if constexpr (TABLE_SIZE_IS_POWER_OF_TWO)
+        {
+            return (bucket_index + 1) & TABLE_INDEX_MASK;
+        }
         if (bucket_index + 1 < INTERNAL_TABLE_SIZE)
         {
             return bucket_index + 1;
@@ -393,10 +405,26 @@ public:
 
 constexpr std::size_t default_bucket_count(std::size_t value_count)
 {
-    // oversize the bucket array by 30%
-    // TODO: think about the oversize percentage
-    // TODO: round to a nearby power of 2 to improve modulus performance
-    return (value_count * 130) / 100;
+    // Oversize the bucket array by 30%, then round up to a power of two so hash->slot mapping
+    // and probe wraparound are a mask (`and`) instead of a divide / compare-branch.
+    if (value_count == 0)
+    {
+        return 0;
+    }
+
+    const std::size_t oversized = (value_count * 130) / 100;
+    const std::size_t min_buckets = std::max(value_count, oversized);
+    if (min_buckets > Bucket::MAX_NUM_BUCKETS)
+    {
+        return Bucket::MAX_NUM_BUCKETS;
+    }
+
+    const std::size_t rounded = std::bit_ceil(min_buckets);
+    if (rounded > Bucket::MAX_NUM_BUCKETS)
+    {
+        return min_buckets;
+    }
+    return rounded;
 }
 
 }  // namespace fixed_containers::fixed_robinhood_hashtable_detail

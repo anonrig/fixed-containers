@@ -4,6 +4,7 @@
 #include "fixed_containers/int_math.hpp"
 #include "fixed_containers/integer_range.hpp"
 
+#include <bit>
 #include <compare>
 #include <cstdint>
 #include <tuple>
@@ -35,14 +36,24 @@ constexpr CyclesAndInteger increment_index_with_wraparound(const IntegerRangeTyp
     }
 
     const std::size_t range_size = range.distance();
+    const std::size_t start = range.start_inclusive();
     const std::size_t new_index_unwrapped = index + n;
-    const auto adjust_to_zero =
-        int_math::safe_subtract(new_index_unwrapped, range.start_inclusive())
-            .template cast<std::size_t>();
+    std::size_t adjust_to_zero = new_index_unwrapped;
+    if (start != 0)
+    {
+        adjust_to_zero =
+            int_math::safe_subtract(new_index_unwrapped, start).template cast<std::size_t>();
+    }
+    if (std::has_single_bit(range_size))
+    {
+        const std::size_t shift = static_cast<std::size_t>(std::countr_zero(range_size));
+        return {.cycles = static_cast<std::int64_t>(adjust_to_zero >> shift),
+                .integer = (adjust_to_zero & (range_size - 1)) + start};
+    }
+
     const std::size_t quotient = adjust_to_zero / range_size;
     const std::size_t remainder = adjust_to_zero - (quotient * range_size);
-    return {.cycles = static_cast<int64_t>(quotient),
-            .integer = remainder + range.start_inclusive()};
+    return {.cycles = static_cast<std::int64_t>(quotient), .integer = remainder + start};
 }
 
 template <IsIntegerRange IntegerRangeType>

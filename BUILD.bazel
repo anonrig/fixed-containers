@@ -318,7 +318,6 @@ cc_library(
     deps = [
         ":algorithm",
         ":assert_or_abort",
-        ":circular_indexing",
         ":concepts",
         ":integer_range",
         ":iterator_utils",

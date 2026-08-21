@@ -36,6 +36,12 @@ TEST(CyclesAndInteger, IncrementIndexWithWraparound)
         static_assert(7 == RESULT.cycles);
         static_assert(9 == RESULT.integer);
     }
+    {
+        static constexpr IntegerRange RANGE = IntegerRange::closed_open(0, 16);
+        constexpr CyclesAndInteger RESULT = increment_index_with_wraparound(RANGE, 14, 5);
+        static_assert(1 == RESULT.cycles);
+        static_assert(3 == RESULT.integer);
+    }
 }
 
 TEST(CyclesAndInteger, DecrementIndexWithWraparound)
@@ -65,6 +71,12 @@ TEST(CyclesAndInteger, DecrementIndexWithWraparound)
         constexpr CyclesAndInteger RESULT = decrement_index_with_wraparound(RANGE, START_INDEX, 62);
         static_assert(-5 == RESULT.cycles);
         static_assert(5 == RESULT.integer);
+    }
+    {
+        static constexpr IntegerRange RANGE = IntegerRange::closed_open(0, 16);
+        constexpr CyclesAndInteger RESULT = decrement_index_with_wraparound(RANGE, 1, 5);
+        static_assert(-1 == RESULT.cycles);
+        static_assert(12 == RESULT.integer);
     }
 }
 

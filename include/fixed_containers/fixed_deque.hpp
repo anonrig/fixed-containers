@@ -2,7 +2,6 @@
 
 #include "fixed_containers/algorithm.hpp"
 #include "fixed_containers/assert_or_abort.hpp"
-#include "fixed_containers/circular_indexing.hpp"
 #include "fixed_containers/concepts.hpp"
 #include "fixed_containers/integer_range.hpp"
 #include "fixed_containers/iterator_utils.hpp"
@@ -15,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <initializer_list>
 #include <iterator>
@@ -47,17 +47,47 @@ class FixedDequeBase
     using Array = std::array<OptionalT, MAXIMUM_SIZE>;
     static constexpr StartingIntegerAndDistance FULL_STARTING_INDEX_AND_SIZE{
         .start = 0, .distance = MAXIMUM_SIZE};
-    static constexpr IntegerRange FULL_RANGE = FULL_STARTING_INDEX_AND_SIZE.to_range();
+    static constexpr std::size_t STARTING_OFFSET_MOD =
+        MAXIMUM_SIZE == 0 ? 0 : FIXED_DEQUE_STARTING_OFFSET % MAXIMUM_SIZE;
 
-    static constexpr std::size_t increment_index_with_wraparound(std::size_t index,
-                                                                 std::size_t n = 1)
+    // Convert a logical index (offset from FIXED_DEQUE_STARTING_OFFSET) to a physical slot.
+    // STARTING_OFFSET_MOD is a compile-time residue so power-of-two sizes fold to `and`.
+    static constexpr std::size_t logical_to_physical(std::size_t logical)
     {
-        return circular_indexing::increment_index_with_wraparound(FULL_RANGE, index, n).integer;
+        if constexpr (MAXIMUM_SIZE == 0)
+        {
+            return 0;
+        }
+        else if constexpr (std::has_single_bit(MAXIMUM_SIZE))
+        {
+            return (logical - STARTING_OFFSET_MOD) & (MAXIMUM_SIZE - 1);
+        }
+        else
+        {
+            const std::size_t logical_mod = logical % MAXIMUM_SIZE;
+            return logical_mod >= STARTING_OFFSET_MOD
+                       ? logical_mod - STARTING_OFFSET_MOD
+                       : logical_mod + MAXIMUM_SIZE - STARTING_OFFSET_MOD;
+        }
     }
+
     static constexpr std::size_t decrement_index_with_wraparound(std::size_t index,
                                                                  std::size_t n = 1)
     {
-        return circular_indexing::decrement_index_with_wraparound(FULL_RANGE, index, n).integer;
+        if constexpr (MAXIMUM_SIZE == 0)
+        {
+            return 0;
+        }
+        else if constexpr (std::has_single_bit(MAXIMUM_SIZE))
+        {
+            return (index - n) & (MAXIMUM_SIZE - 1);
+        }
+        else
+        {
+            const std::size_t n_mod = n % MAXIMUM_SIZE;
+            const std::size_t index_mod = index % MAXIMUM_SIZE;
+            return index_mod >= n_mod ? index_mod - n_mod : index_mod + MAXIMUM_SIZE - n_mod;
+        }
     }
 
 public:
@@ -114,9 +144,8 @@ private:
             const noexcept
         {
             assert_or_abort(starting_index_and_distance_->to_range().contains(current_index_));
-            const std::size_t index =
-                decrement_index_with_wraparound(current_index_, FIXED_DEQUE_STARTING_OFFSET);
-            return optional_storage_detail::get(array_->at(index));
+            const std::size_t index = logical_to_physical(current_index_);
+            return optional_storage_detail::get((*array_)[index]);
         }
 
         template <bool IS_CONST2>
@@ -560,8 +589,7 @@ public:
         {
             Checking::out_of_range(index, size(), loc);
         }
-        const std::size_t adjusted_i = increment_index_with_wraparound(front_index(), index);
-        return unchecked_at(adjusted_i);
+        return unchecked_at(logical_to_physical(starting_index_and_size().start + index));
     }
     [[nodiscard]] constexpr const_reference at(
         size_type index,
@@ -572,8 +600,7 @@ public:
         {
             Checking::out_of_range(index, size(), loc);
         }
-        const std::size_t adjusted_i = increment_index_with_wraparound(front_index(), index);
-        return unchecked_at(adjusted_i);
+        return unchecked_at(logical_to_physical(starting_index_and_size().start + index));
     }
 
     constexpr reference front(
@@ -718,8 +745,7 @@ private:
 
     [[nodiscard]] constexpr std::size_t front_index() const
     {
-        return decrement_index_with_wraparound(starting_index_and_size().start,
-                                               FIXED_DEQUE_STARTING_OFFSET);
+        return logical_to_physical(starting_index_and_size().start);
     }
     [[nodiscard]] constexpr std::size_t back_index() const
     {
@@ -727,7 +753,7 @@ private:
     }
     [[nodiscard]] constexpr std::size_t end_index() const
     {
-        return increment_index_with_wraparound(front_index(), size());
+        return logical_to_physical(starting_index_and_size().start + size());
     }
 
     [[nodiscard]] constexpr const Array& array() const
