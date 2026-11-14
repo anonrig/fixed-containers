@@ -84,8 +84,7 @@ public:
     {
         for (const auto& [label, value] : range)
         {
-            const std::size_t ordinal = EnumAdapterType::ordinal(label);
-            values()[ordinal] = value;
+            values()[checked_ordinal(label)] = value;
         }
     }
 
@@ -105,25 +104,15 @@ public:
     }
 
 public:
-    constexpr reference at(const L& label)
-    {
-        const std::size_t ordinal = EnumAdapterType::ordinal(label);
-        return values()[ordinal];
-    }
+    constexpr reference at(const L& label) { return values()[checked_ordinal(label)]; }
     [[nodiscard]] constexpr const_reference at(const L& label) const
     {
-        const std::size_t ordinal = EnumAdapterType::ordinal(label);
-        return values()[ordinal];
+        return values()[checked_ordinal(label)];
     }
-    constexpr reference operator[](const L& label)
-    {
-        const std::size_t ordinal = EnumAdapterType::ordinal(label);
-        return values()[ordinal];
-    }
+    constexpr reference operator[](const L& label) { return values()[checked_ordinal(label)]; }
     constexpr const_reference operator[](const L& label) const
     {
-        const std::size_t ordinal = EnumAdapterType::ordinal(label);
-        return values()[ordinal];
+        return values()[checked_ordinal(label)];
     }
     constexpr reference front() { return values().front(); }
     [[nodiscard]] constexpr const_reference front() const { return values().front(); }
@@ -177,6 +166,20 @@ public:
     }
 
 private:
+    // `EnumAdapter::ordinal` is in [0, count()) for every entry of `values()`,
+    // which the rich-enum / adapter concepts check. That does not cover a
+    // hand-specialized EnumAdapter, or a label that is not one of those
+    // entries: `ordinal()` can then return anything. `std::array::operator[]`
+    // will not diagnose that, so keep an explicit check. (The built-in
+    // magic_enum adapter fails earlier, via `optional::value()`, on an
+    // enumerator that is not in the enum.)
+    [[nodiscard]] static constexpr std::size_t checked_ordinal(const L& label)
+    {
+        const std::size_t ordinal = EnumAdapterType::ordinal(label);
+        assert_or_abort(ordinal < ENUM_COUNT);
+        return ordinal;
+    }
+
     [[nodiscard]] constexpr const ValueArrayType& values() const
     {
         return IMPLEMENTATION_DETAIL_DO_NOT_USE_values_;

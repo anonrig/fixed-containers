@@ -185,6 +185,14 @@ if(BUILD_TESTS)
     add_test_dependencies(fixed_map_raw_view_test)
     add_executable(fixed_map_perf_test test/fixed_map_perf_test.cpp)
     add_test_dependencies(fixed_map_perf_test)
+    # Not registered with ctest: this is a manual benchmark / codegen harness.
+    # See the comment at the top of test/hot_path_bench.cpp.
+    add_executable(hot_path_bench test/hot_path_bench.cpp)
+    target_link_libraries(hot_path_bench
+        benchmark::benchmark
+        fixed_containers
+        project_options
+        project_warnings)
     add_executable(fixed_red_black_tree_test test/fixed_red_black_tree_test.cpp)
     add_test_dependencies(fixed_red_black_tree_test)
     add_executable(fixed_red_black_tree_view_test test/fixed_red_black_tree_view_test.cpp)

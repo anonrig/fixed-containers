@@ -173,6 +173,15 @@ public:
         // bucket also encodes. This does not restrict the size of the table because we store the
         // value_index in 32 bits, so the 56 left in this hash are plenty for our needs.
         const std::uint64_t shifted_hash = hash >> Bucket::FINGERPRINT_BITS;
+        // Power-of-two table: residue is a mask. gcc/clang -O2+ already
+        // strength-reduce unsigned `x % (1<<k)` to AND when the divisor is a
+        // compile-time constant; the AND is spelled out so the fast path is
+        // in the source at -O0 as well. The lookup win on the default map is
+        // that `default_bucket_count` now often yields a power of two, which
+        // is what makes this form legal -- a non-power-of-two modulus cannot
+        // be an AND and is a multiplicative inverse instead.
+        // `next_bucket_index` is the case that is not a peephole: rewriting
+        // `i+1 < N ? i+1 : 0` as `(i+1) & (N-1)` requires proving `i < N`.
         if constexpr (std::has_single_bit(INTERNAL_TABLE_SIZE))
         {
             return static_cast<SizeType>(shifted_hash & (INTERNAL_TABLE_SIZE - 1));
@@ -405,20 +414,52 @@ public:
 
 constexpr std::size_t default_bucket_count(std::size_t value_count)
 {
-    // Oversize the bucket array by ~30%, then round up to a power of two so
-    // `hash % table_size` and wraparound become a single AND instead of a divide.
+    // Oversize the bucket array by ~30% (max load factor ~77%).
+    //
+    // A power-of-two bucket count turns `hash % table_size` and probe wrap
+    // into a single AND. Always rounding the oversized count up with
+    // `bit_ceil` can nearly double it (e.g. 130 -> 256, 1300 -> 2048). Each
+    // bucket is 8 bytes and these maps are fixed-capacity (stack / NTTP /
+    // serialized layout), so that is real bloat on large maps.
+    //
+    // Round up only when the extra buckets are bounded:
+    //   - at most 50% more than the ~30%-oversized count, or
+    //   - at most 64 extra buckets (512 bytes)
+    // Small maps, including the default 32-entry table (41 -> 64), still take
+    // the AND path. Large maps whose next power of two would almost double
+    // the table keep the non-power-of-two oversized count. Pass an explicit
+    // BUCKET_COUNT to force either choice.
     if (value_count <= 1)
     {
         return value_count;
     }
 
     const std::size_t oversized = (value_count * 130) / 100;
+    if (oversized >= Bucket::MAX_NUM_BUCKETS)
+    {
+        // `bit_ceil` is UB if the rounded value is not representable, and a
+        // count above MAX_NUM_BUCKETS cannot be used by FixedRobinhoodHashtable.
+        return Bucket::MAX_NUM_BUCKETS;
+    }
+
     const std::size_t rounded = std::bit_ceil(oversized);
     if (rounded > Bucket::MAX_NUM_BUCKETS)
     {
-        return std::min(std::max(oversized, value_count), Bucket::MAX_NUM_BUCKETS);
+        return oversized;
     }
-    return rounded;
+
+    // 64 buckets * sizeof(Bucket) == 512 bytes of absolute slack. Enough to
+    // cover the 32-entry default (41 -> 64) and other small tables where the
+    // relative gap to the next power of two is large but the byte cost is not.
+    // (Not a local static: a static variable in a constexpr function is C++23.)
+    const std::size_t extra = rounded - oversized;
+    const bool within_relative_cap = rounded <= oversized + (oversized / 2);
+    const bool within_absolute_cap = extra <= 64;
+    if (within_relative_cap || within_absolute_cap)
+    {
+        return rounded;
+    }
+    return oversized;
 }
 
 }  // namespace fixed_containers::fixed_robinhood_hashtable_detail

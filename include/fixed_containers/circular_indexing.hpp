@@ -37,14 +37,29 @@ constexpr CyclesAndInteger increment_index_with_wraparound(const IntegerRangeTyp
     }
 
     const std::size_t start = range.start_inclusive();
-    // Fast path for the common [0, N) range used by FixedDeque: a single add + remainder.
-    // When N is a power of two the compiler turns `%`/`/` into AND/SHIFT.
+    // Fast path for the common [0, N) window (FixedDeque's storage range).
+    //
+    // The general path below has to shift an arbitrary start offset through
+    // safe_subtract before it can divide. When the window is [0, N) that
+    // adjustment is the identity, so one add is enough:
+    //   cycles  = (index + n) / N
+    //   integer = (index + n) % N
+    // That drops the subtract, the widening cast, and the separate
+    // remainder-via-multiply, which is why this path is shorter.
+    //
+    // If N is a power of two the quotient/remainder are a shift and a mask.
+    // Spelling that explicitly matters when N is only known at runtime: the
+    // compiler will not invent an "if power-of-two then AND" specialization.
+    // When N is a compile-time constant power of two, gcc/clang already
+    // strength-reduce the `/` `%` form to the same shift/AND; the explicit
+    // form matches that and is what FixedDeque uses for its own wrap.
     if (start == 0)
     {
         if (std::has_single_bit(range_size))
         {
-            return {.cycles = static_cast<std::int64_t>((index + n) >> std::countr_zero(range_size)),
-                    .integer = (index + n) & (range_size - 1)};
+            return {
+                .cycles = static_cast<std::int64_t>((index + n) >> std::countr_zero(range_size)),
+                .integer = (index + n) & (range_size - 1)};
         }
         return {.cycles = static_cast<std::int64_t>((index + n) / range_size),
                 .integer = (index + n) % range_size};
@@ -72,10 +87,33 @@ constexpr CyclesAndInteger decrement_index_with_wraparound(const IntegerRangeTyp
     }
 
     const std::size_t start = range.start_inclusive();
+    // Fast path for [0, N). The general path turns a decrement into an
+    // increment by a complementary offset: add one extra cycle, step forward
+    // by `extra * N - n`, then subtract that extra cycle. That is correct for
+    // an arbitrary start, but it is a longer dependency chain (two divisions,
+    // a multiply, safe_subtract, then a full increment).
+    //
+    // For a window that starts at 0 the residue is a plain modulo, so the
+    // result can be computed directly. Split both operands into cycles and
+    // residues:
+    //   index = (index / N) * N + (index % N)
+    //   n     = (n / N) * N + (n % N)
+    // If n's residue fits in index's residue, subtract it and keep
+    // `index/N - n/N` cycles. Otherwise wrap around the window once:
+    // integer = index%N + N - n%N, and one additional negative cycle.
+    //
+    // `index` may sit far outside [0, N) -- FixedDeque's virtual origin is
+    // near SIZE_MAX/2 -- so both operands are reduced mod N before the
+    // subtract. That keeps `integer` in range without a negative intermediate
+    // (which size_t cannot represent).
+    //
+    // A runtime power-of-two N still goes through `%`/`/` here; the compiler
+    // will not emit a mask/shift unless it can see that N is constant, in
+    // which case it strength-reduces these operations the same way as the
+    // increment path. FixedDeque bypasses this function entirely for
+    // compile-time power-of-two capacities and uses `(index - n) & (N - 1)`.
     if (start == 0)
     {
-        // Keep `integer` in [0, range_size). `index` can be far outside that interval
-        // (FixedDeque uses a virtual origin near SIZE_MAX/2).
         const std::size_t index_mod = index % range_size;
         const std::size_t n_mod = n % range_size;
         const std::size_t n_cycles = n / range_size;

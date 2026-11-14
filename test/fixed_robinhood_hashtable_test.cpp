@@ -879,17 +879,23 @@ TEST(MapCornerCases, PerfectCollisions)
     EXPECT_EQ(idx.bucket_index, 6);
 }
 
-TEST(DefaultBucketCount, RoundsUpToPowerOfTwo)
+TEST(DefaultBucketCount, PrefersPowerOfTwoWhenOverheadIsBounded)
 {
     static_assert(default_bucket_count(0) == 0);
     static_assert(default_bucket_count(1) == 1);
     static_assert(default_bucket_count(2) == 2);
     static_assert(default_bucket_count(10) == 16);
     static_assert(default_bucket_count(11) == 16);
+    // 30% oversize is 41; +23 buckets is within the 64-bucket absolute cap.
     static_assert(default_bucket_count(32) == 64);
-    static_assert(default_bucket_count(100) == 256);
+    // 30% oversize is 130; bit_ceil is 256 (+126), past both caps, so keep 130.
+    static_assert(default_bucket_count(100) == 130);
+    static_assert(default_bucket_count(1000) == 1300);
     static_assert(std::has_single_bit(default_bucket_count(7)));
+    static_assert(std::has_single_bit(default_bucket_count(32)));
+    static_assert(!std::has_single_bit(default_bucket_count(100)));
     static_assert(default_bucket_count(10) >= (10 * 130) / 100);
+    static_assert(default_bucket_count(100) >= (100 * 130) / 100);
 }
 
 }  // namespace fixed_containers::fixed_robinhood_hashtable_detail
