@@ -12,6 +12,22 @@
 #include <type_traits>
 #include <utility>
 
+namespace fixed_containers::algorithm_detail
+{
+// Byte comparison implements operator== only when == cannot be user-defined
+// and each value has a single object representation.
+//
+// has_unique_object_representations is not enough: a padding-free class (or
+// an enum) may still overload ==, e.g. comparing a value modulo 2. Integral
+// and pointer == are built-in and cannot be replaced. std::byte is an enum,
+// but the standard defines its == as a comparison of the unsigned char
+// values, which matches the object representation.
+template <class T>
+concept BytewiseEquality =
+    swar::UniqueObjectRepresentation<T> &&
+    (std::is_integral_v<T> || std::is_pointer_v<T> || std::same_as<T, std::byte>);
+}  // namespace fixed_containers::algorithm_detail
+
 namespace fixed_containers::algorithm
 {
 // Similar to https://en.cppreference.com/w/cpp/memory/uninitialized_move
@@ -50,7 +66,7 @@ constexpr bool equal(InputIt1 first1, InputIt1 last1, InputIt2 first2, InputIt2 
     using T1 = std::remove_cvref_t<decltype(*first1)>;
     using T2 = std::remove_cvref_t<decltype(*first2)>;
     if constexpr (std::contiguous_iterator<InputIt1> && std::contiguous_iterator<InputIt2> &&
-                  std::same_as<T1, T2> && swar::UniqueObjectRepresentation<T1>)
+                  std::same_as<T1, T2> && algorithm_detail::BytewiseEquality<T1>)
     {
         if (!std::is_constant_evaluated())
         {
